@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "start": "npm run build && PORT=4173 npm start",
+  "port": 4173,
+  "install": [
+    {
+      "name": "Node dependencies",
+      "check": "test -d node_modules && test -x node_modules/.bin/vite",
+      "run": "npm ci",
+      "inputs": ["package.json", "package-lock.json"]
+    }
+  ]
+}

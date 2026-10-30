@@ -1,7 +1,21 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { extname, join, resolve, sep } from 'node:path'
 
 const PORT = Number(process.env.PORT || 3001)
+const DIST_DIR = resolve('dist')
+const MIME_TYPES = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+}
 const accounts = new Map()
 const sessions = new Map()
 const DAILY_WITHDRAWAL_LIMIT_CENTS = 50000
@@ -64,6 +78,31 @@ const currentAccount = (request) =>
   accounts.get(sessions.get(parseCookies(request.headers.cookie).dena_session))
 const sessionCookie = (token, maxAge = 60 * 60 * 8) =>
   `dena_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`
+const serveStatic = async (response, pathname) => {
+  const requestedPath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
+  const requestedFile = resolve(join(DIST_DIR, requestedPath))
+  if (!requestedFile.startsWith(`${DIST_DIR}${sep}`)) return false
+
+  try {
+    const content = await readFile(requestedFile)
+    response.writeHead(200, {
+      'Content-Type': MIME_TYPES[extname(requestedFile)] ?? 'application/octet-stream',
+    })
+    response.end(content)
+    return true
+  } catch {
+    if (extname(requestedFile)) return false
+    try {
+      const content = await readFile(join(DIST_DIR, 'index.html'))
+      response.writeHead(200, { 'Content-Type': MIME_TYPES['.html'] })
+      response.end(content)
+      return true
+    } catch (fallbackError) {
+      console.error('Static frontend is unavailable', fallbackError)
+      return false
+    }
+  }
+}
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`)
@@ -153,6 +192,10 @@ const server = createServer(async (request, response) => {
         account.withdrawnTodayCents += amount
       } else account.balanceCents += amount
       return json(response, 200, { account: publicAccount(account) })
+    }
+    if (method === 'GET') {
+      const served = await serveStatic(response, url.pathname)
+      if (served) return
     }
     return json(response, 404, { message: 'Not found.' })
   } catch (error) {
